@@ -7,10 +7,10 @@ import {
     waitForPXE,
 } from '@aztec/aztec.js';
 import { getSchnorrAccount } from '@aztec/accounts/schnorr';
-import { deployEscrowContract, deployTokenContract, AZTEC_TIMEOUT } from './helpers.js'
+import { deployEscrowContract, deployTokenContract, AZTEC_TIMEOUT, deployTokenMinterContract } from './helpers.js'
 import { SponsoredFPCContract } from "@aztec/noir-contracts.js/SponsoredFPC";
 import { getSponsoredFPCInstance } from "../utils.js";
-import { TokenContract } from "../artifacts/index.js";
+import { TokenMinterContract } from "../artifacts/index.js";
 
 // Set as minters 
 const NETWORK_ARGS = ["testnet", "sandbox"];
@@ -23,8 +23,8 @@ const parseAztecNetworkArg = (args: string[]): string => {
         console.log(console.error(`❌ Missing required argument: --${NETWORK_ARG_NAME}=<value>`));
         process.exit(1);
     }
-    const value = networkArg.split(networkArg)[1];
-    if (NETWORK_ARGS.includes(value)) {
+    const value = networkArg.split('=')[1];
+    if (!NETWORK_ARGS.includes(value)) {
         console.log(console.error("❌ Network value not testnet or sandbox"));
         process.exit(1);
     }
@@ -36,6 +36,8 @@ const parseAztecNetworkArg = (args: string[]): string => {
  * FPC address
  */
 const deploy = async () => {
+    let token: AztecAddress;
+    let tokenMinterContract: TokenMinterContract | undefined = undefined;
 
     const secretKey = Fr.random();
     const signingKey = Fq.random();
@@ -57,17 +59,22 @@ const deploy = async () => {
 
     const aztecNetworkArg = parseAztecNetworkArg(process.argv);
 
-    let token: AztecAddress;
     if (aztecNetworkArg === "testnet") {
-        token = AztecAddress.fromString("0x04e1b62d4c68730f345c41d92852ead8237f0ba198a7e6973ab03806aa43ce75");
+        token = AztecAddress.fromString("0x0cd9912580b900c3685c6fa2f7098eae9eae222eb4f3cf7724eb9bfb1a038297");
     } else {
-        const tokenContract = await deployTokenContract(adminWallet, paymentMethod)
+        tokenMinterContract = await deployTokenMinterContract(adminWallet, paymentMethod);
+        const tokenContract = await deployTokenContract(adminWallet, tokenMinterContract.address, paymentMethod)
         token = tokenContract.address;
+        await tokenMinterContract.methods.set_token(token).send({ fee: { paymentMethod } }).wait();
     }
     const escrow = await deployEscrowContract(adminWallet, paymentMethod, token);
+    // assign token to minter contract
 
     console.log(`VITE_APP_ESCROW_CONTRACT_ADDRESS = "${escrow.address.toString()}"`);
     console.log(`VITE_APP_TOKEN_CONTRACT_ADDRESS = "${token.toString()}"`);
+    if (tokenMinterContract) {
+        console.log(`VITE_APP_TOKEN_MINTER_CONTRACT_ADDRESS = "${tokenMinterContract.address.toString()}"`)
+    }
     process.exit(0);
 };
 
